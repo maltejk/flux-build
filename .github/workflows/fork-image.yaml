@@ -1,0 +1,48 @@
+name: fork-image
+
+# Builds a test image from this fork and pushes it to GHCR under the fork
+# owner's namespace so the deterministic-output fix can be tried out in a
+# downstream environment. Not intended for upstream; lives only on the
+# ci/fork-image branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to publish
+        default: fix-deterministic
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        run: CGO_ENABLED=0 go build -o flux-build .
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        run: |
+          set -eux
+          IMG=ghcr.io/${{ github.repository_owner }}/flux-build
+          TAG="${{ github.event.inputs.tag }}"
+          docker build -t "$IMG:$TAG" -t "$IMG:${GITHUB_SHA}" .
+          docker push "$IMG:$TAG"
+          docker push "$IMG:${GITHUB_SHA}"
+          echo "Published $IMG:$TAG and $IMG:${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
